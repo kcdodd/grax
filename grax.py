@@ -65,6 +65,12 @@ def ricci_scalar_point(metric_fn, coord: Floating[D]) -> Floating[D,D]:
     - jnp.einsum('ij,mik,kjm', ginv, gamma, gamma))
 
 #===============================================================================
+def lagrangian_density(metric_fn, coord: Floating[D]) -> Floating:
+  g = metric_fn(coord)
+  R = ricci_scalar_point(metric_fn, coord)
+  return jnp.linalg.det(g)*R
+
+#===============================================================================
 def minkowski(coord, sign: float = 1.0):
   d = len(coord)
 
@@ -76,25 +82,36 @@ def minkowski(coord, sign: float = 1.0):
 def schwarzschild(coord, rg = 1.0, rs = 0.25):
   rg = jnp.maximum(rg, rs)
   d = len(coord)
-  rsq = jnp.sum(coord[1:]**2)
-  rsq_exterior = jnp.where(rsq > rg**2, rsq, rg**2)
+  t, r, theta, phi = coord
 
-  a = jnp.minimum(1.0, rsq*rs/rg**3)
-  b = rs/rsq_exterior**0.5
+  r_exterior = jnp.where(r > rg, r, rg)
+  r_interior = jnp.where(r < rg, r, rg)
+
+  rsq_interior = r_interior**2
+  rsq_exterior = r_exterior**2
+
+  a = jnp.minimum(1.0, rsq_interior*rs/rg**3)
+  b = jnp.minimum(1.0, rs/r_exterior)
 
   interior = jnp.array([
     -0.25*(3*(1-rs/rg)**0.5 - (1-a)**0.5)**2,
     1/(1-a),
-    *([1.0]*(d-2))])
+    rsq_interior*jnp.cos(phi)**2,
+    rsq_interior])
 
-  exterior = jnp.array([-(1-b), 1/(1-b), *([1.0]*(d-2))])
+  exterior = jnp.array([
+    -(1-b),
+    1/(1-b),
+    rsq_exterior*jnp.cos(phi)**2,
+    rsq_exterior])
+
   print(f"{interior.dtype=}")
 
-  return jnp.diag(jnp.where(rsq < rg**2, interior, exterior))
+  return jnp.diag(jnp.where(r < rg, interior, exterior))
 
 #===============================================================================
 # coord = jnp.array([0.0, 0.0])
-r = jnp.linspace(0, 5, 100)
+r = jnp.linspace(0, 4, 1000)
 coord = jnp.stack([
   jnp.zeros_like(r),
   r,
@@ -110,15 +127,17 @@ g = jax.vmap(metric_fn)(coord)
 print(f"{g.shape=}")
 ginv = jnp.linalg.inv(g)
 
-Figure(Plot1D([Line(g[:,0,0])]), Plot1D([Line(g[:,1,1])]), Plot1D([Line(ginv[:,0,0])]), Plot1D([Line(ginv[:,1,1])])).fig()
+# Figure(Plot1D([Line(g[:,0,0])]), Plot1D([Line(g[:,1,1])]), Plot1D([Line(ginv[:,0,0])]), Plot1D([Line(ginv[:,1,1])])).fig()
 
 # gamma = jax.vmap(connection_point)(metric_fn, coord)
 
 R = jax.vmap(ricci_scalar_point)(metric_fn, coord)
+L = jax.vmap(lagrangian_density)(metric_fn, coord)
 
 extent=[[r[0], r[-1]], [jnp.amin(g),jnp.amax(g)]]
 
 Figure(
   Plot1D([Line(g[:,0,0])]),
   Plot1D([Line(g[:,1,1])]),
-  Plot1D([Line(R)])).fig()
+  Plot1D([Line(R)]),
+  Plot1D([Line(L)])).fig()
